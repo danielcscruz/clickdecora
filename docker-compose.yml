@@ -1,0 +1,60 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: clickdecora
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-clickdecora_dev}
+      POSTGRES_DB: clickdecora
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U clickdecora"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://clickdecora:${POSTGRES_PASSWORD:-clickdecora_dev}@db:5432/clickdecora
+      SECRET_KEY: ${SECRET_KEY:-dev_secret_key_change_in_production}
+      ALGORITHM: HS256
+      MP_ACCESS_TOKEN: ${MP_ACCESS_TOKEN}
+      MP_WEBHOOK_SECRET: ${MP_WEBHOOK_SECRET}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        DOCKER_BUILD: "true"
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-dev_nextauth_secret}
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
+      BACKEND_URL: http://backend:8000
+      MP_ACCESS_TOKEN: ${MP_ACCESS_TOKEN}
+      CALENDLY_URL: ${CALENDLY_URL}
+      DOCKER_BUILD: "true"
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres_data:
